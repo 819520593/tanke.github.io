@@ -1,0 +1,414 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>坦克游戏</title>
+    <style>
+        body {
+            margin: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            flex-direction: column;
+            height: 100vh;
+            background-color: #333;
+        }
+        canvas {
+            background-color: #fff;
+            margin-bottom: 10px;
+        }
+        .controls {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+        .control-btn {
+            width: 50px;
+            height: 50px;
+            margin: 5px;
+            background-color: #666;
+            color: #fff;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            cursor: pointer;
+            user-select: none;
+        }
+        .control-btn:active {
+            background-color: #888;
+        }
+        .direction-controls {
+            display: flex;
+            flex-direction: column;
+        }
+        .horizontal-controls {
+            display: flex;
+        }
+        #restartBtn {
+            display: none;
+            margin-top: 10px;
+            padding: 10px 20px;
+            background-color: #444;
+            color: #fff;
+            border: none;
+            cursor: pointer;
+        }
+        #restartBtn:active {
+            background-color: #666;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="gameCanvas" width="800" height="600"></canvas>
+    <div class="controls">
+        <div class="direction-controls">
+            <div class="control-btn" id="upBtn">↑</div>
+            <div class="horizontal-controls">
+                <div class="control-btn" id="leftBtn">←</div>
+                <div class="control-btn" id="downBtn">↓</div>
+                <div class="control-btn" id="rightBtn">→</div>
+            </div>
+        </div>
+        <div class="control-btn" id="shootBtn">射击</div>
+    </div>
+    <button id="restartBtn">重新开始</button>
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+
+        const playerTank = {
+            x: canvas.width / 2,
+            y: canvas.height - 50,
+            width: 40,
+            height: 40,
+            color: 'green',
+            speed: 5,
+            dx: 0,
+            dy: 0,
+            lives: 3
+        };
+
+        const enemyTanks = [];
+        const bullets = [];
+        const enemyBullets = [];
+        const obstacles = [];
+        const bulletSpeed = 5.6; // 7 * 0.8
+        let bulletCooldown = 0;
+        let enemyBulletCooldown = 0;
+        let level = 1;
+        let score = 0;
+        let playerLives = 3;
+        let baseHealth = 3;
+
+        function createEnemyTank(x, y) {
+            return {
+                x: x,
+                y: y,
+                width: 40,
+                height: 40,
+                color: 'red',
+                speed: 1, // 2 / 2
+                dx: 1,
+                dy: 0
+            };
+        }
+
+        function drawTank(tank) {
+            ctx.fillStyle = tank.color;
+            ctx.fillRect(tank.x, tank.y, tank.width, tank.height);
+        }
+
+        function drawBullets() {
+            ctx.fillStyle = 'red';
+            bullets.forEach(bullet => {
+                ctx.fillRect(bullet.x, bullet.y, bullet.width, bullet.height);
+            });
+            ctx.fillStyle = 'blue';
+            enemyBullets.forEach(bullet => {
+                ctx.fillRect(bullet.x, bullet.y, bullet.width, bullet.height);
+            });
+        }
+
+        function drawObstacles() {
+            ctx.fillStyle = 'grey';
+            obstacles.forEach(obstacle => {
+                ctx.fillRect(obstacle.x, obstacle.y, obstacle.width, obstacle.height);
+            });
+        }
+
+        function drawBase() {
+            ctx.fillStyle = 'yellow';
+            ctx.fillRect(canvas.width / 2 - 20, canvas.height - 60, 40, 40);
+        }
+
+        function moveTank(tank) {
+            tank.x += tank.dx;
+            tank.y += tank.dy;
+
+            // 碰撞检测与边界
+            if (tank.x < 0) tank.x = 0;
+            if (tank.y < 0) tank.y = 0;
+            if (tank.x + tank.width > canvas.width) tank.x = canvas.width - tank.width;
+            if (tank.y + tank.height > canvas.height) tank.y = canvas.height - tank.height;
+
+            // 碰撞检测与障碍物
+            obstacles.forEach(obstacle => {
+                if (tank.x < obstacle.x + obstacle.width &&
+                    tank.x + tank.width > obstacle.x &&
+                    tank.y < obstacle.y + obstacle.height &&
+                    tank.y + tank.height > obstacle.y) {
+                    tank.x -= tank.dx;
+                    tank.y -= tank.dy;
+                    if (tank.color === 'red') {
+                        // 调整敌人坦克路径
+                        tank.dx = Math.random() < 0.5 ? -tank.dx : tank.dx;
+                        tank.dy = Math.random() < 0.5 ? -tank.dy : tank.dy;
+                    }
+                }
+            });
+        }
+
+        function moveBullets() {
+            bullets.forEach((bullet, index) => {
+                bullet.y -= bulletSpeed;
+                if (bullet.y < 0) {
+                    bullets.splice(index, 1);
+                }
+            });
+            enemyBullets.forEach((bullet, index) => {
+                bullet.y += bulletSpeed;
+                if (bullet.y > canvas.height) {
+                    enemyBullets.splice(index, 1);
+                }
+            });
+        }
+
+        function detectCollisions() {
+            bullets.forEach((bullet, bulletIndex) => {
+                enemyTanks.forEach((enemy, enemyIndex) => {
+                    if (bullet.x < enemy.x + enemy.width &&
+                        bullet.x + bullet.width > enemy.x &&
+                        bullet.y < enemy.y + enemy.height &&
+                        bullet.y + bullet.height > enemy.y) {
+                        bullets.splice(bulletIndex, 1);
+                        enemyTanks.splice(enemyIndex, 1);
+                        score += 10;
+                        if (enemyTanks.length === 0) {
+                            nextLevel();
+                        }
+                    }
+                });
+            });
+
+            enemyBullets.forEach((bullet, bulletIndex) => {
+                if (bullet.x < playerTank.x + playerTank.width &&
+                    bullet.x + bullet.width > playerTank.x &&
+                    bullet.y < playerTank.y + playerTank.height &&
+                    bullet.y + bullet.height > playerTank.y) {
+                    enemyBullets.splice(bulletIndex, 1);
+                    playerLives--;
+                    if (playerLives === 0) {
+                        gameOver("游戏结束！");
+                    }
+                }
+                if (bullet.x < canvas.width / 2 - 20 + 40 &&
+                    bullet.x + bullet.width > canvas.width / 2 - 20 &&
+                    bullet.y < canvas.height - 60 + 40 &&
+                    bullet.y + bullet.height > canvas.height - 60) {
+                    enemyBullets.splice(bulletIndex, 1);
+                    baseHealth--;
+                    if (baseHealth === 0) {
+                        gameOver("基地被摧毁，游戏结束！");
+                    }
+                }
+            });
+
+            bullets.forEach((bullet, bulletIndex) => {
+                enemyBullets.forEach((enemyBullet, enemyBulletIndex) => {
+                    if (bullet.x < enemyBullet.x + enemyBullet.width &&
+                        bullet.x + bullet.width > enemyBullet.x &&
+                        bullet.y < enemyBullet.y + enemyBullet.height &&
+                        bullet.y + bullet.height > enemyBullet.y) {
+                        bullets.splice(bulletIndex, 1);
+                        enemyBullets.splice(enemyBulletIndex, 1);
+                    }
+                });
+            });
+        }
+
+        function updateEnemyTanks() {
+            enemyTanks.forEach(tank => {
+                if (Math.random() < 0.02) {
+                    let angle = Math.atan2(canvas.height - 60 - tank.y, canvas.width / 2 - 20 - tank.x);
+                    tank.dx = tank.speed * Math.cos(angle);
+                    tank.dy = tank.speed * Math.sin(angle);
+                }
+                moveTank(tank);
+
+                if (enemyBulletCooldown === 0) {
+                    enemyBullets.push({
+                        x: tank.x + tank.width / 2 - 2.5,
+                        y: tank.y + tank.height,
+                        width: 5,
+                        height: 10
+                    });
+                    enemyBulletCooldown = 100;
+                }
+            });
+        }
+
+        function createObstacles() {
+            for (let i = 0; i < level; i++) {
+                obstacles.push({
+                    x: Math.random() * (canvas.width - 50),
+                    y: Math.random() * (canvas.height - 200),
+                    width: 50,
+                    height: 50
+                });
+            }
+        }
+
+        function nextLevel() {
+            level++;
+            createObstacles();
+            for (let i = 0; i < level + 4; i++) {
+                enemyTanks.push(createEnemyTank(Math.random() * (canvas.width - 40), Math.random() * (canvas.height / 2)));
+            }
+        }
+
+        function resetGame() {
+            playerTank.x = canvas.width / 2;
+            playerTank.y = canvas.height - 50;
+            bullets.length = 0;
+            enemyBullets.length = 0;
+            enemyTanks.length = 0;
+            obstacles.length = 0;
+            level = 1;
+            score = 0;
+            playerLives = 3;
+            baseHealth = 3;
+            createObstacles();
+            for (let i = 0; i < 5; i++) {
+                enemyTanks.push(createEnemyTank(Math.random() * (canvas.width - 40), Math.random() * (canvas.height / 2)));
+            }
+            document.getElementById('restartBtn').style.display = 'none';
+            update();
+        }
+
+        function gameOver(message) {
+            alert(message);
+            document.getElementById('restartBtn').style.display = 'block';
+            cancelAnimationFrame(animationId);
+        }
+
+        function update() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            drawTank(playerTank);
+            enemyTanks.forEach(drawTank);
+            drawBullets();
+            drawObstacles();
+            drawBase();
+
+            moveTank(playerTank);
+            moveBullets();
+            updateEnemyTanks();
+            detectCollisions();
+
+            if (bulletCooldown > 0) bulletCooldown--;
+            if (enemyBulletCooldown > 0) enemyBulletCooldown--;
+
+            ctx.fillStyle = 'white';
+            ctx.font = '20px Arial';
+            ctx.fillText('Score: ' + score, 10, 20);
+            ctx.fillText('Level: ' + level, 10, 50);
+            ctx.fillText('Player Lives: ' + playerLives, 10, 80);
+            ctx.fillText('Base Health: ' + baseHealth, 10, 110);
+
+            animationId = requestAnimationFrame(update);
+        }
+
+        function keyDown(e) {
+            e.preventDefault();
+            if (e.key === 'ArrowRight') playerTank.dx = playerTank.speed;
+            if (e.key === 'ArrowLeft') playerTank.dx = -playerTank.speed;
+            if (e.key === 'ArrowUp') playerTank.dy = -playerTank.speed;
+            if (e.key === 'ArrowDown') playerTank.dy = playerTank.speed;
+            if (e.key === ' ' && bulletCooldown === 0) {
+                bullets.push({
+                    x: playerTank.x + playerTank.width / 2 - 2.5,
+                    y: playerTank.y,
+                    width: 5,
+                    height: 10
+                });
+                bulletCooldown = 20;
+            }
+        }
+
+        function keyUp(e) {
+            e.preventDefault();
+            if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') playerTank.dx = 0;
+            if (e.key === 'ArrowUp' || e.key === 'ArrowDown') playerTank.dy = 0;
+        }
+
+        function mobileControl(direction) {
+            switch (direction) {
+                case 'up':
+                    playerTank.dy = -playerTank.speed;
+                    break;
+                case 'down':
+                    playerTank.dy = playerTank.speed;
+                    break;
+                case 'left':
+                    playerTank.dx = -playerTank.speed;
+                    break;
+                case 'right':
+                    playerTank.dx = playerTank.speed;
+                    break;
+            }
+        }
+
+        function stopMobileControl() {
+            playerTank.dx = 0;
+            playerTank.dy = 0;
+        }
+
+        function shoot() {
+            if (bulletCooldown === 0) {
+                bullets.push({
+                    x: playerTank.x + playerTank.width / 2 - 2.5,
+                    y: playerTank.y,
+                    width: 5,
+                    height: 10
+                });
+                bulletCooldown = 20;
+            }
+        }
+
+        document.getElementById('upBtn').addEventListener('mousedown', () => mobileControl('up'));
+        document.getElementById('downBtn').addEventListener('mousedown', () => mobileControl('down'));
+        document.getElementById('leftBtn').addEventListener('mousedown', () => mobileControl('left'));
+        document.getElementById('rightBtn').addEventListener('mousedown', () => mobileControl('right'));
+        document.getElementById('shootBtn').addEventListener('mousedown', shoot);
+
+        document.getElementById('upBtn').addEventListener('mouseup', stopMobileControl);
+        document.getElementById('downBtn').addEventListener('mouseup', stopMobileControl);
+        document.getElementById('leftBtn').addEventListener('mouseup', stopMobileControl);
+        document.getElementById('rightBtn').addEventListener('mouseup', stopMobileControl);
+
+        document.getElementById('restartBtn').addEventListener('click', resetGame);
+
+        document.addEventListener('keydown', keyDown);
+        document.addEventListener('keyup', keyUp);
+
+        // 初始敌人坦克
+        for (let i = 0; i < 5; i++) {
+            enemyTanks.push(createEnemyTank(Math.random() * (canvas.width - 40), Math.random() * (canvas.height / 2)));
+        }
+
+        createObstacles();
+        update();
+    </script>
+</body>
+</html>
